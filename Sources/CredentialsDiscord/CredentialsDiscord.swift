@@ -21,7 +21,7 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
     public var callbackUrl: String
 
     /// The User-Agent to be passed along on Discord API calls.
-    public private(set) var userAgent: String
+    private let userAgent: String = "DiscordBot (http://github.com/123FLO321/Kitura-CredentialsDiscord, 1.0.0)"
 
     /// The name of the plugin.
     public let name = "Discord"
@@ -40,12 +40,11 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
     /// - Parameter clientId: The Client ID of the app in the Discord Developer applications.
     /// - Parameter clientSecret: The Client Secret of the app in the Discord Developer applications.
     /// - Parameter callbackUrl: The URL that Discord redirects back to.
-    public init (clientId: String, clientSecret: String, callbackUrl: String, userAgent: String?=nil, options: [String: Any] = [:]) {
+    public init (clientId: String, clientSecret: String, callbackUrl: String, options: [String: Any] = [:]) {
         self.clientId = clientId
         self.clientSecret = clientSecret
         self.callbackUrl = callbackUrl
         self.scopes = options[CredentialsDiscordOptions.scopes] as? [String] ?? []
-        self.userAgent = userAgent ?? "Kitura-CredentialsDiscord"
         self.userProfileDelegate = options[CredentialsDiscordOptions.userProfileDelegate] as? UserProfileDelegate
     }
 
@@ -73,11 +72,15 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
             requestOptions.append(.schema("https://"))
             requestOptions.append(.hostname("discordapp.com"))
             requestOptions.append(.method("POST"))
-            requestOptions.append(.path("api/oauth2/token?client_id=\(clientId)&redirect_uri=\(callbackUrl)&client_secret=\(clientSecret)&code=\(code)"))
+            requestOptions.append(.path("api/oauth2/token"))
             var headers = [String:String]()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
             headers["Accept"] = "application/json"
             requestOptions.append(.headers(headers))
-
+            
+            let scopeParameters = getScopeParameters()
+            let body = "client_id=\(clientId)&redirect_uri=\(callbackUrl)&client_secret=\(clientSecret)&code=\(code)&grant_type=authorization_code\(scopeParameters)"
+            
             let requestForToken = HTTP.request(requestOptions) { fbResponse in
                 if let fbResponse = fbResponse, fbResponse.statusCode == .OK {
                     // get user profile with access token
@@ -90,7 +93,7 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
                             requestOptions.append(.schema("https://"))
                             requestOptions.append(.hostname("discordapp.com"))
                             requestOptions.append(.method("GET"))
-                            requestOptions.append(.path("/users/@me"))
+                            requestOptions.append(.path("api/v6/users/@me"))
                             headers = [String:String]()
                             headers["Accept"] = "application/json"
                             headers["User-Agent"] = self.userAgent
@@ -131,23 +134,11 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
                     onFailure(nil, nil)
                 }
             }
+            requestForToken.write(from: body)
             requestForToken.end()
         }
         else {
-            var scopes = self.scopes
-            if !scopes.contains("identify") && !scopes.contains("email") {
-                scopes.append("identify")
-            }
-            
-            // Log in
-            var scopeParameters = "&scope="
-
-            for scope in scopes {
-                // space delimited list: https://discordapp.com/developers/docs/topics/oauth2#authorization-code-grant
-                // trailing space character is probably OK
-                scopeParameters.append(scope + " ")
-            }
-
+            let scopeParameters = getScopeParameters()
             do {
                 try response.redirect("https://discordapp.com/api/oauth2/authorize?client_id=\(clientId)&redirect_uri=\(callbackUrl)&response_type=code\(scopeParameters)")
                 inProgress()
@@ -157,10 +148,20 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
             }
         }
     }
+    
+    private func getScopeParameters() -> String {
+        var scopeParameters = "&scope="
+        for scope in scopes {
+            // space delimited list: https://discordapp.com/developers/docs/topics/oauth2#authorization-code-grant
+            // trailing space character is probably OK
+            scopeParameters.append(scope + " ")
+        }
+        return scopeParameters
+    }
 
     // Discord user profile response format looks like this: https://discordapp.com/developers/docs/resources/user#user-object
     private func createUserProfile(from userDictionary: [String: Any]) -> UserProfile? {
-        guard let id = userDictionary["id"] as? Int else {
+        guard let id = userDictionary["id"] as? String else {
             return nil
         }
 
@@ -178,6 +179,6 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
             userProfilePhotos = [UserProfile.UserProfilePhoto("https://cdn.discordapp.com/avatars/\(id)/\(avatar).png")]
         }
 
-        return UserProfile(id: String(id), displayName: name, provider: self.name, emails: userProfileEmails, photos: userProfilePhotos)
+        return UserProfile(id: id, displayName: name, provider: self.name, emails: userProfileEmails, photos: userProfilePhotos)
     }
 }
