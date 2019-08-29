@@ -150,6 +150,11 @@ public class CredentialsDiscord: CredentialsPluginProtocol {
     }
     
     private func getScopeParameters() -> String {
+        var scopes = self.scopes
+        if !scopes.contains("identify") && !scopes.contains("email") {
+            scopes.append("identify")
+        }
+
         var scopeParameters = "&scope="
         for scope in scopes {
             // space delimited list: https://discordapp.com/developers/docs/topics/oauth2#authorization-code-grant
